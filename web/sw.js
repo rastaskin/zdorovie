@@ -1,9 +1,14 @@
 /* Офлайн-кэш оболочки. Данные пользователя здесь не хранятся: они лежат в IndexedDB в зашифрованном виде. */
-const VERSION = 'zdorovie-v3';
+const VERSION = 'zdorovie-v4';
 const SHELL = [
   './', 'index.html', 'config.js', 'model.js', 'sync.js', 'app.js', 'manifest.webmanifest', 'fonts/fonts.css',
-  'fonts/GolosText-cyrillic.woff2', 'fonts/GolosText-latin.woff2',
-  'fonts/Unbounded-cyrillic.woff2', 'fonts/Unbounded-latin.woff2',
+  'fonts/Kurale-400-cyrillic.woff2', 'fonts/Kurale-400-latin.woff2',
+  'fonts/AlegreyaSansSC-400-cyrillic.woff2', 'fonts/AlegreyaSansSC-400-latin.woff2',
+  'fonts/AlegreyaSansSC-500-cyrillic.woff2', 'fonts/AlegreyaSansSC-500-latin.woff2',
+  'fonts/MarckScript-400-cyrillic.woff2', 'fonts/MarckScript-400-latin.woff2',
+  'ui/wood.webp', 'ui/parchment.webp', 'ui/panel.webp', 'ui/divider.webp',
+  'ui/sh/timeline.webp', 'ui/sh/saved.webp', 'ui/sh/glossary.webp', 'ui/sh/perfume.webp', 'ui/sh/era.webp', 'ui/sh/herbal.webp',
+  'ui/ic/book.webp', 'ui/ic/crown.webp', 'ui/ic/hourglass.webp', 'ui/ic/herb.webp', 'ui/ic/rose.webp', 'ui/ic/flask.webp', 'ui/ic/cross.webp', 'ui/ic/compass.webp', 'ui/ic/tower.webp', 'ui/ic/swords.webp', 'ui/ic/helmet.webp', 'ui/ic/lute.webp', 'ui/ic/keg.webp', 'ui/ic/mortar.webp', 'ui/ic/serpent.webp', 'ui/ic/bread.webp',
   'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/favicon-32.png'
 ];
 self.addEventListener('install', e => {

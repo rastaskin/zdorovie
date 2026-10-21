@@ -12,13 +12,10 @@ var CAN=[['none','Не было'],['less','Меньше обычного'],['usu
 var PHQ_Q=['Мало интереса или удовольствия от занятий','Подавленность, безнадёжность','Трудности со сном: засыпание, прерывистый сон или слишком много сна','Усталость, мало сил','Плохой аппетит или переедание','Плохое мнение о себе, ощущение, что подвёл себя или близких','Трудно сосредоточиться на чтении, работе, фильме','Заторможенность или, наоборот, суетливость','Мысли, что лучше было бы умереть, или о том, чтобы причинить себе вред'];
 var PHQ_A=['Ни разу','Несколько дней','Больше половины дней','Почти каждый день'];
 var CHECK='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-var IC={
- today:'<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/>',
- tasks:'<path d="M10 6h10M10 12h10M10 18h10"/><path d="M3.5 6l1.6 1.6L8 4.7M3.5 12l1.6 1.6L8 10.7M3.5 18l1.6 1.6L8 16.7"/>',
- card:'<path d="M5 3.5h9.5L19 8v12.5H5z"/><path d="M14.5 3.5V8H19M8.5 12.5h7M8.5 16.5h4.5"/>',
- advice:'<path d="M9.5 18h5M10.5 21h3"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.3 1.1 2.2h5c0-.9.4-1.6 1.1-2.2A6 6 0 0 0 12 3z"/>',
- progress:'<path d="M5 20v-8M11 20V5M17 20v-5M3 20.5h18"/>'
-};
+/* гербы разделов и золотые значки достижений (ui/, из «Богемии 1403») */
+var SH={today:'timeline',tasks:'saved',card:'glossary',advice:'perfume',progress:'era'};
+var ACHI={first:'book',d7:'hourglass',d30:'rose',meds14:'flask',w4:'compass',phq:'cross',c1:'herb',c7:'serpent',c30:'crown',bk3:'keg',t10:'swords'},TASKI=['tower','helmet','lute','mortar','bread'];
+function achIcon(a,i){return 'ui/ic/'+(ACHI[a[0]]||TASKI[i%TASKI.length])+'.webp'}
 var TABS=[['today','Сегодня'],['tasks','Задачи'],['card','Медкарта'],['advice','Советы'],['progress','Прогресс']];
 var SEGS=[['summary','Сводка'],['meds','Препараты'],['labs','Анализы'],['studies','Исследования'],['visits','Приёмы'],['private','Личное']];
 
@@ -178,8 +175,8 @@ function lastOf(arr,key){var s=arr.slice().sort(function(a,b){return a[key]<b[ke
 
 /* ---------- views ---------- */
 function vNav(){
-  return '<nav class="tabs" aria-label="Разделы"><div class="brand display">Здоровье</div>'+TABS.map(function(t){
-    return '<button class="tab" data-act="tab" data-tab="'+t[0]+'"'+(UI.tab===t[0]?' aria-current="page"':'')+'><svg viewBox="0 0 24 24" aria-hidden="true">'+IC[t[0]]+'</svg><span>'+t[1]+'</span></button>'}).join('')+'</nav>';
+  return '<nav class="tabs" aria-label="Разделы"><div class="brand display">Здоровье<small>личная медкарта</small></div>'+TABS.map(function(t){
+    return '<button class="tab" data-act="tab" data-tab="'+t[0]+'"'+(UI.tab===t[0]?' aria-current="page"':'')+'><img src="ui/sh/'+SH[t[0]]+'.webp" alt=""><span>'+t[1]+'</span></button>'}).join('')+'</nav>';
 }
 function vToday(){
   var d=UI.day,t=today(),rec=S.daily[d]||{},h=rec.h||{};
@@ -316,7 +313,7 @@ function vProgress(){
     var all=S.tasks.filter(function(t){return t.system===k}),dn=all.filter(function(t){return t.done}).length;
     return '<div class="sys">'+ring(all.length?dn/all.length:0,dn+'/'+all.length)+'<div><b>'+SYS_S[k]+'</b><small class="muted">'+(dn===all.length?'всё закрыто':'осталось '+(all.length-dn))+'</small></div></div>'}).join('')+'</div></section>';
   var A=ACH(),on=A.filter(function(a){return a[3]}).length;
-  s+='<section class="sec"><div class="sec-h"><h2>Достижения</h2><small>'+on+' из '+A.length+'</small></div><div class="ach">'+A.map(function(a){return '<div class="'+(a[3]?'on':'')+'"><b>'+esc(a[1])+'</b><small>'+esc(a[2])+'</small></div>'}).join('')+'</div></section>';
+  s+='<section class="sec"><div class="sec-h"><h2>Достижения</h2><small>'+on+' из '+A.length+'</small></div><div class="ach">'+A.map(function(a,i){return '<div class="'+(a[3]?'on':'')+'"><img src="'+achIcon(a,i)+'" alt=""><b>'+esc(a[1])+'</b><small>'+esc(a[2])+'</small></div>'}).join('')+'</div></section>';
   var ws=S.weights.slice().sort(function(a,b){return a.date<b.date?-1:1});
   var first=ws[0];
   s+='<section class="sec"><div class="sec-h"><h2>Вес</h2>'+(ws.length>1?'<small>'+(function(){var d=ws[ws.length-1].kg-first.kg;return (d>0?'+':'')+fmtNum(d)+' кг от первого замера'})()+'</small>':'')+'</div>'+
@@ -653,7 +650,7 @@ async function adoptCloud(pass){
 }
 
 /* ---------- gate screens ---------- */
-function gate(inner){return '<div class="gate">'+inner+'</div>'}
+function gate(inner){return '<div class="gate"><img class="crest" src="ui/sh/herbal.webp" alt="">'+inner+'</div>'}
 function vGate(){
   var s=UI.screen,e='<p class="err" id="gerr">'+esc(UI.gateErr||'')+'</p>';
   if(s==='welcome')return gate('<h1 class="display">Здоровье</h1><p class="lead">Медкарта, задачи и отметки дня. Всё шифруется и хранится только на этом устройстве.</p>'+
