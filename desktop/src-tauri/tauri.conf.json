@@ -1,0 +1,57 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Здоровье",
+  "mainBinaryName": "zdorovie",
+  "version": "0.1.0",
+  "identifier": "app.zdorovie.desktop",
+  "build": {
+    "frontendDist": "../../web"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Здоровье",
+        "width": 1200,
+        "height": 820,
+        "minWidth": 380,
+        "minHeight": 560,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob:",
+        "font-src": "'self'",
+        "connect-src": "'self' ipc: http://ipc.localhost https://oauth2.googleapis.com https://www.googleapis.com",
+        "worker-src": "'self'",
+        "manifest-src": "'self'",
+        "base-uri": "'none'",
+        "form-action": "'none'",
+        "object-src": "'none'"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "createUpdaterArtifacts": true,
+    "shortDescription": "Медкарта, задачи и отметки дня",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+    "windows": {
+      "wix": { "language": "ru-RU" },
+      "nsis": { "languages": ["Russian"], "installMode": "currentUser" }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENEOENGRTJFNzBGRDM4QTQKUldTa09QMXdMdjZNelJ5ajg1VkVxZzVtY3lvUWt4R005OGJvL3F5a281dGhvUVlDSmNVR1Vib3QK",
+      "endpoints": ["https://github.com/rastaskin/zdorovie/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  }
+}
