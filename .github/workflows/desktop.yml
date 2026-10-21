@@ -40,6 +40,16 @@ jobs:
           [IO.File]::WriteAllText((Resolve-Path $f), $c, [Text.UTF8Encoding]::new($false))
           Select-String -Path $f -Pattern '"version"|releases'
 
+      - name: Секрет Desktop-клиента Google только в сборку
+        shell: pwsh
+        env:
+          SECRET: ${{ secrets.GOOGLE_DESKTOP_CLIENT_SECRET }}
+        run: |
+          if ($env:SECRET) {
+            Add-Content -Path web/config.js -Encoding utf8 -Value ("window.ZCONFIG.desktopClientSecret = '" + $env:SECRET + "';")
+            Write-Host 'Секрет добавлен в сборку'
+          } else { Write-Host 'Секрет не задан: синхронизация в настольной версии будет выключена' }
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: swatinem/rust-cache@v2

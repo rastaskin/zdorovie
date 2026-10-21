@@ -28,10 +28,18 @@
 
 | Клиент | Тип | Что заполнить |
 |---|---|---|
-| Для iPhone и браузера | **Web application** | Authorized JavaScript origins: `https://ВАШ-ЛОГИН.github.io`. Authorized redirect URIs: `https://ВАШ-ЛОГИН.github.io/zdorovie/` |
+| Для iPhone и браузера | **Web application** | Authorized JavaScript origins: `https://rastaskin.github.io`. Authorized redirect URIs: `https://rastaskin.github.io/zdorovie/` |
 | Для ПК | **Desktop app** | Ничего, только имя |
 
-Скопируйте **Client ID** обоих клиентов и передайте их Claude Code. Это не секрет. Client secret Desktop-клиента тоже передайте: для настольных приложений Google не считает его секретом.
+Скопируйте **Client ID** обоих клиентов и передайте их Claude Code: это не секрет, они лягут в `web/config.js`.
+
+**Client secret** Desktop-клиента в чат не вставляйте. Положите его сразу в Secrets репозитория, команда спросит значение:
+
+```
+gh secret set GOOGLE_DESKTOP_CLIENT_SECRET -R rastaskin/zdorovie
+```
+
+Сборка установщика подставит его только в приложение для ПК. В репозитории и на сайте его не будет.
 
 ## Что важно знать
 

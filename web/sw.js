@@ -1,7 +1,7 @@
 /* Офлайн-кэш оболочки. Данные пользователя здесь не хранятся: они лежат в IndexedDB в зашифрованном виде. */
-const VERSION = 'zdorovie-v2';
+const VERSION = 'zdorovie-v3';
 const SHELL = [
-  './', 'index.html', 'model.js', 'app.js', 'manifest.webmanifest', 'fonts/fonts.css',
+  './', 'index.html', 'config.js', 'model.js', 'sync.js', 'app.js', 'manifest.webmanifest', 'fonts/fonts.css',
   'fonts/GolosText-cyrillic.woff2', 'fonts/GolosText-latin.woff2',
   'fonts/Unbounded-cyrillic.woff2', 'fonts/Unbounded-latin.woff2',
   'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/favicon-32.png'

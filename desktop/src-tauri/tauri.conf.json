@@ -27,7 +27,7 @@
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: blob:",
         "font-src": "'self'",
-        "connect-src": "'self' ipc: http://ipc.localhost https://oauth2.googleapis.com https://www.googleapis.com",
+        "connect-src": "'self' ipc: http://ipc.localhost",
         "worker-src": "'self'",
         "manifest-src": "'self'",
         "base-uri": "'none'",
@@ -49,7 +49,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENEOENGRTJFNzBGRDM4QTQKUldTa09QMXdMdjZNelJ5ajg1VkVxZzVtY3lvUWt4R005OGJvL3F5a281dGhvUVlDSmNVR1Vib3QK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY1MUExOUMyRUM2RkUwNTEKUldSUjRHL3N3aGthOVZhcGpVdmJMdytKR3laUmhkREVlZUx2Q1R6bjIzd2NVbzB2TW93MWJGWUQK",
       "endpoints": ["https://github.com/rastaskin/zdorovie/releases/latest/download/latest.json"],
       "windows": { "installMode": "passive" }
     }

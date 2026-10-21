@@ -103,7 +103,7 @@ function commit(fn,quiet,nostamp){
 }
 
 /* ---------- small renderers ---------- */
-function top(title){return '<header class="top"><h1 class="display">'+esc(title)+'</h1><div class="top-act"><button class="btn sm ghost" data-act="help">Помощь</button><button class="btn sm ghost" data-act="data">Данные</button><button class="btn sm ghost" data-act="security">Защита</button></div></header>'}
+function top(title){return '<header class="top"><div class="top-t"><h1 class="display">'+esc(title)+'</h1>'+syncChip()+'</div><div class="top-act"><button class="btn sm ghost" data-act="help">Помощь</button><button class="btn sm ghost" data-act="data">Данные</button><button class="btn sm ghost" data-act="security">Защита</button></div></header>'}
 function lvlStrip(){
   var led=ledger(),L=levelOf(led.total);
   return '<section class="lvl" aria-label="Уровень"><div class="lvl-n display">'+L.n+'</div><div><div class="lvl-t">'+esc(levelName(L.n))+'</div>'+
@@ -460,18 +460,20 @@ function dataKey(raw){return crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},
 
 /* Хранилище: случайный ключ данных (DEK) зашифрован отдельно кодовой фразой, ключом восстановления и Face ID. */
 var VAULT=null,DEK=null,DK=null,saveChain=Promise.resolve(),storageOK=true;
-async function wrapPass(dek,pass){var salt=rnd(16),k=await kdfPass(pass,salt,ITER),w=await aesEnc(k,dek);return {salt:b64(salt),iter:ITER,iv:w.iv,ct:w.ct}}
-async function wrapRec(dek,recBytes){var k=await kdfRaw(recBytes,'zdorovie-recovery'),w=await aesEnc(k,dek);return {iv:w.iv,ct:w.ct}}
+async function wrapPass(dek,pass){var salt=rnd(16),k=await kdfPass(pass,salt,ITER),w=await aesEnc(k,dek);return {salt:b64(salt),iter:ITER,iv:w.iv,ct:w.ct,at:Date.now()}}
+async function wrapRec(dek,recBytes){var k=await kdfRaw(recBytes,'zdorovie-recovery'),w=await aesEnc(k,dek);return {iv:w.iv,ct:w.ct,at:Date.now()}}
 async function unwrapPass(v,pass){var w=v.wraps.pass,k=await kdfPass(pass,unb64(w.salt),w.iter);return aesDec(k,w)}
 async function unwrapRec(v,code){var b=fromB32(code);if(!b||b.length!==20)throw new Error('bad');var k=await kdfRaw(b,'zdorovie-recovery');return aesDec(k,v.wraps.rec)}
 async function openWith(dek){DEK=dek;DK=await dataKey(dek)}
 async function decryptData(v,key){var p=await aesDec(key,v.data);return normalize(JSON.parse(TD.decode(p)))}
 function save(){
-  if(!DK||!S)return;var snapshot=JSON.stringify(S);
+  if(!DK||!S)return;var snapshot=JSON.stringify(S);G.edits++;
+  if(syncOn())syncMeta().dirty=true;
   saveChain=saveChain.then(async function(){
     VAULT.data=await aesEnc(DK,TE.encode(snapshot));VAULT.updated=new Date().toISOString();
     await storage.put(VAULT);storageOK=true;
   }).catch(function(){storageOK=false;toast('Не удалось сохранить на устройство')});
+  scheduleSync(10000);
 }
 async function newVault(pass){
   var dek=rnd(32),rec=rnd(20);
@@ -479,7 +481,7 @@ async function newVault(pass){
   await openWith(dek);return toB32(rec);
 }
 function lock(){
-  if(DEK)DEK.fill(0);DEK=null;DK=null;S=null;UI.priv=false;UI.pending=null;UI.backupFile=null;closeSheet();
+  if(DEK)DEK.fill(0);DEK=null;DK=null;S=null;G.refresh=null;clearTimeout(G.timer);UI.priv=false;UI.pending=null;UI.backupFile=null;closeSheet();
   UI.screen=VAULT?'lock':'welcome';UI.gateErr='';render();
 }
 
@@ -512,13 +514,152 @@ async function pkUnlock(){
 }
 function hasPk(){return !!(VAULT&&(VAULT.wraps.pk||[]).some(function(p){return p.host===location.hostname}))}
 
+/* ---------- Google Drive: вход и синхронизация ---------- */
+/* Токены только в памяти. Refresh token настольной версии хранится в конверте (local.gtoken) зашифрованным DEK.
+   Веб: implicit flow через переадресацию (без сторонних скриптов). Tauri: authorization code + PKCE, loopback 127.0.0.1. */
+var CFG=window.ZCONFIG||{},SCOPE='https://www.googleapis.com/auth/drive.appdata',AUTH_URL='https://accounts.google.com/o/oauth2/v2/auth',TOKEN_URL='https://oauth2.googleapis.com/token';
+var G={token:null,exp:0,refresh:null,status:'',busy:false,timer:null,foreign:null,edits:0};
+function syncConf(){return TAURI?!!(CFG.desktopClientId&&CFG.desktopClientSecret):!!CFG.webClientId}
+function syncMeta(){VAULT.local=VAULT.local||{};VAULT.local.sync=VAULT.local.sync||{};return VAULT.local.sync}
+function syncOn(){return !!(VAULT&&VAULT.local&&VAULT.local.sync&&VAULT.local.sync.on)}
+function persistVault(){saveChain=saveChain.then(function(){return storage.put(VAULT)}).then(function(){storageOK=true}).catch(function(){storageOK=false});return saveChain}
+function hfetch(u,i){return TAURI?TAURI.http.fetch(u,i):fetch(u,i)}
+function b64url(u){return b64(u).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+function qs(o){return Object.keys(o).filter(function(k){return o[k]!=null&&o[k]!==''}).map(function(k){return encodeURIComponent(k)+'='+encodeURIComponent(o[k])}).join('&')}
+function setToken(t){G.token=t.access_token;G.exp=Date.now()+((+t.expires_in)||3600)*1000}
+function authErr(){var e=new Error('auth');e.auth=true;return e}
+async function getToken(force){
+  if(!force&&G.token&&Date.now()<G.exp-60000)return G.token;
+  G.token=null;
+  if(TAURI&&await desktopRefresh())return G.token;
+  throw authErr();
+}
+
+/* веб: переадресация на Google и обратно; state — одноразовый, в sessionStorage до возврата */
+function redirectLogin(prompt,intent){
+  var st=b64url(rnd(16));
+  try{sessionStorage.setItem('z-oauth',JSON.stringify({st:st,intent:intent||''}))}catch(e){}
+  location.assign(AUTH_URL+'?'+qs({client_id:CFG.webClientId,redirect_uri:location.origin+location.pathname,response_type:'token',scope:SCOPE,state:st,include_granted_scopes:'true',prompt:prompt}));
+}
+function readRedirect(){
+  var h=(location.hash||'').slice(1);
+  if(!/(^|&)(access_token|error)=/.test(h)){
+    /* вход начат, но ответа нет (вернулись кнопкой «Назад»): не уходим на Google повторно */
+    try{if(sessionStorage.getItem('z-oauth')){sessionStorage.removeItem('z-oauth');return {error:'aborted'}}}catch(e){}
+    return null;
+  }
+  history.replaceState(null,'',location.pathname+location.search);
+  var q=new URLSearchParams(h),s=null;
+  try{s=JSON.parse(sessionStorage.getItem('z-oauth')||'null');sessionStorage.removeItem('z-oauth')}catch(e){}
+  if(!s||q.get('state')!==s.st)return {error:'state'};
+  if(q.get('access_token'))setToken({access_token:q.get('access_token'),expires_in:q.get('expires_in')});
+  return {error:q.get('error'),intent:s.intent};
+}
+
+/* Tauri: системный браузер, ответ ловит одноразовый сервер на 127.0.0.1 (команда oauth_listen в lib.rs) */
+async function tokenRequest(params){
+  var r=await hfetch(TOKEN_URL,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:qs(Object.assign({client_id:CFG.desktopClientId,client_secret:CFG.desktopClientSecret||''},params))});
+  var j={};try{j=await r.json()}catch(e){}
+  return {ok:r.ok,j:j};
+}
+async function desktopLogin(){
+  var port=await TAURI.core.invoke('oauth_listen',{port:CFG.desktopPort||null});
+  var redirect='http://127.0.0.1:'+port,ver=b64url(rnd(32)),st=b64url(rnd(16));
+  var ch=b64url(new Uint8Array(await crypto.subtle.digest('SHA-256',TE.encode(ver))));
+  var un=null,got=new Promise(function(res,rej){
+    TAURI.event.listen('oauth-redirect',function(e){res(String(e.payload))}).then(function(f){un=f});
+    setTimeout(function(){rej(new Error('timeout'))},300000);
+  });
+  try{
+    await TAURI.opener.openUrl(AUTH_URL+'?'+qs({client_id:CFG.desktopClientId,redirect_uri:redirect,response_type:'code',scope:SCOPE,
+      code_challenge:ch,code_challenge_method:'S256',state:st,access_type:'offline',prompt:'consent'}));
+    var q=new URLSearchParams((await got).split('?')[1]||'');
+    if(q.get('state')!==st||!q.get('code'))throw new Error(q.get('error')||'state');
+    var t=await tokenRequest({grant_type:'authorization_code',code:q.get('code'),code_verifier:ver,redirect_uri:redirect});
+    if(!t.ok||!t.j.access_token)throw new Error('token');
+    setToken(t.j);if(t.j.refresh_token){G.refresh=t.j.refresh_token;await storeRefresh()}
+  }finally{if(un)un()}
+}
+async function desktopRefresh(){
+  var rt=G.refresh;
+  if(!rt&&DK&&VAULT&&VAULT.local&&VAULT.local.gtoken){try{rt=TD.decode(await aesDec(DK,VAULT.local.gtoken))}catch(e){}}
+  if(!rt)return false;
+  var t=await tokenRequest({grant_type:'refresh_token',refresh_token:rt});
+  if(!t.ok||!t.j.access_token){if(t.j.error==='invalid_grant'){G.refresh=null;delete VAULT.local.gtoken;persistVault()}return false}
+  G.refresh=rt;setToken(t.j);return true;
+}
+async function storeRefresh(){if(!TAURI||!DK||!G.refresh||!VAULT)return;VAULT.local=VAULT.local||{};VAULT.local.gtoken=await aesEnc(DK,TE.encode(G.refresh));await persistVault()}
+function login(intent){if(TAURI)return desktopLogin();redirectLogin('',intent);return new Promise(function(){})}
+
+/* сменили фразу или ключ восстановления: новая обёртка DEK должна уйти в облако */
+function wrapsChanged(){if(syncOn()){syncMeta().dirty=true;persistVault();scheduleSync(1000)}}
+function scheduleSync(ms){if(!syncOn()||!DK)return;clearTimeout(G.timer);G.timer=setTimeout(function(){syncNow()},ms)}
+async function syncNow(){
+  if(!syncOn()||!DK||!S||G.busy)return;
+  if(navigator.onLine===false){G.status='offline';renderSync();return}
+  G.busy=true;G.status='busy';renderSync();
+  var edits=G.edits;
+  try{
+    await saveChain;
+    var ctx={drive:ZSync.driveApi(hfetch,getToken),vault:VAULT,S:S,now:Date.now,merge:M.merge,equal:M.equal,
+      decrypt:function(env){return decryptData(env,DK)},
+      persist:async function(withData){
+        if(withData){S=ctx.S;VAULT.data=await aesEnc(DK,TE.encode(JSON.stringify(S)));VAULT.updated=new Date().toISOString()}
+        await persistVault();
+      }};
+    var r=await ZSync.run(ctx);
+    if(r.status==='foreign'){G.foreign=r.remote;G.status='foreign'}
+    else if(r.status==='busy'){G.status='error';scheduleSync(30000)}
+    else{G.status='ok';G.foreign=null}
+    if(r.changed&&UI.screen==='app')render();
+    if(G.edits!==edits){syncMeta().dirty=true;persistVault();scheduleSync(2000)}
+  }catch(e){G.status=e&&e.auth?'auth':(e&&e.status?'error':'offline')}
+  G.busy=false;renderSync();
+}
+function ago(t){var m=Math.round((Date.now()-t)/60000);if(m<1)return 'только что';if(m<60)return m+' мин назад';var h=Math.round(m/60);if(h<24)return h+' ч назад';return fmtDate(iso(new Date(t)),true)}
+function syncLabel(){
+  var s=G.status,at=syncOn()&&VAULT.local.sync.at;
+  if(s==='busy')return 'Синхронизация…';
+  if(s==='offline')return 'Нет связи с Google';
+  if(s==='auth')return 'Войти в Google';
+  if(s==='foreign')return 'В Google Drive другая медкарта';
+  if(s==='error')return 'Ошибка синхронизации';
+  return at?'Синхронизировано '+ago(at):'Ещё не синхронизировано';
+}
+function syncChip(){return syncOn()?'<button class="sync-st'+(/auth|offline|foreign|error/.test(G.status)?' warn':'')+'" data-act="sync-tap" data-sync-label>'+esc(syncLabel())+'</button>':''}
+function renderSync(){
+  document.querySelectorAll('[data-sync-label]').forEach(function(el){el.outerHTML=syncChip()});
+  if(sheetKind==='data')openSheet(dataSheet(),'data',true);
+}
+setInterval(function(){if(DK)renderSync()},60000);
+async function cloudFetchForRestore(){
+  var d=ZSync.driveApi(hfetch,getToken),m=await d.find();
+  if(!m)return gerr('В Google Drive нет медкарты. Создайте хранилище здесь и подключите Google Drive в разделе «Данные».');
+  var env=null;try{env=JSON.parse(await d.download(m.id))}catch(e){}
+  if(!isVaultFile(env))return gerr('Файл в Google Drive повреждён.');
+  UI.restore=env;UI.restoreCloud={fileId:m.id,version:String(m.version)};UI.screen='restore';UI.gateErr='';render();
+}
+/* Облачная медкарта зашифрована другим DEK: принять её ключ и влить локальные данные внутрь */
+async function adoptCloud(pass){
+  var env=G.foreign,dek=await unwrapPass(env,pass),rs=await decryptData(env,await dataKey(dek));
+  var rt=G.refresh;if(!rt&&VAULT.local&&VAULT.local.gtoken){try{rt=TD.decode(await aesDec(DK,VAULT.local.gtoken))}catch(e){}}
+  var merged=M.merge(rs,S);
+  VAULT.wraps={pass:env.wraps.pass,rec:env.wraps.rec,prfSalt:env.wraps.prfSalt||VAULT.wraps.prfSalt,pk:[]};
+  if(DEK)DEK.fill(0);await openWith(dek);S=merged;G.foreign=null;G.refresh=rt;
+  var sy=syncMeta();sy.version=null;sy.dirty=true;
+  if(VAULT.local.gtoken)delete VAULT.local.gtoken;await storeRefresh();
+  save();await saveChain;G.status='';syncNow();
+}
+
 /* ---------- gate screens ---------- */
 function gate(inner){return '<div class="gate">'+inner+'</div>'}
 function vGate(){
   var s=UI.screen,e='<p class="err" id="gerr">'+esc(UI.gateErr||'')+'</p>';
   if(s==='welcome')return gate('<h1 class="display">Здоровье</h1><p class="lead">Медкарта, задачи и отметки дня. Всё шифруется и хранится только на этом устройстве.</p>'+
     '<button class="btn pri" data-act="g-new">Создать защищённое хранилище</button>'+
-    '<label class="btn" for="restore-in">Восстановить из резервной копии</label><input class="vh" type="file" id="restore-in" accept=".json,application/json">'+e+
+    '<label class="btn" for="restore-in">Восстановить из резервной копии</label><input class="vh" type="file" id="restore-in" accept=".json,application/json">'+
+    (syncConf()?'<button class="btn" data-act="g-cloud">Подключить медкарту из Google Drive</button>':'')+e+
     (navigator.standalone===false&&/iPhone|iPad/.test(navigator.userAgent)?'<p class="hint">Сначала добавьте приложение на экран «Домой» и откройте его оттуда: у вкладки Safari отдельное хранилище.</p>':''));
   if(s==='setpass'||s==='newpass')return gate('<h1 class="display">Кодовая фраза</h1>'+
     (s==='newpass'?'<p class="lead">Задайте новую фразу: старая больше не подойдёт.</p>':'<p class="lead">Ей шифруется вся медкарта. Лучше 4 случайных слова, например «окно сирень мост пятница».</p>')+
@@ -538,7 +679,7 @@ function vGate(){
     '<button class="btn ghost" data-act="g-empty">Начать с пустой карты</button><p class="hint">После импорта удалите исходный файл из «Загрузок» и «Файлов»: он не зашифрован.</p>');
   if(s==='lock'||s==='restore'){
     var isR=s==='restore';
-    return gate('<h1 class="display">'+(isR?'Резервная копия':'Здоровье')+'</h1><p class="lead">'+(isR?'Введите кодовую фразу, которой защищена копия.':'Медкарта заблокирована.')+'</p>'+
+    return gate('<h1 class="display">'+(isR?(UI.restoreCloud?'Google Drive':'Резервная копия'):'Здоровье')+'</h1><p class="lead">'+(isR?(UI.restoreCloud?'Введите кодовую фразу медкарты из Google Drive.':'Введите кодовую фразу, которой защищена копия.'):'Медкарта заблокирована.')+'</p>'+
       (!isR&&hasPk()?'<button class="btn pri" data-act="g-pkunlock">Открыть по Face ID</button>':'')+
       (UI.useRec?'<label class="f" for="rk">Ключ восстановления</label><input id="rk" autocomplete="off" autocapitalize="characters" spellcheck="false">':
         '<label class="f" for="up">Кодовая фраза</label><input id="up" type="password" autocomplete="current-password">')+e+
@@ -563,15 +704,24 @@ function render(){
 /* ---------- data & security sheets ---------- */
 async function prepareBackup(){
   UI.backupFile=null;await saveChain;
-  var body=JSON.stringify(Object.assign({},VAULT,{exportedAt:new Date().toISOString()}));
+  var body=JSON.stringify(Object.assign({},VAULT,{local:undefined,exportedAt:new Date().toISOString()}));
   UI.backupFile=new File([body],'medcard_'+today()+'.enc.json',{type:'application/json'});
   if(sheetKind==='data')openSheet(dataSheet(),'data',true);
+}
+function driveSection(){
+  var s='<h3>Google Drive</h3>';
+  if(!syncConf())return s+'<p class="muted" style="font-size:14px">Синхронизация в этой сборке не настроена.</p>';
+  if(!syncOn())return s+'<p class="muted" style="font-size:14px">Медкарта будет сама синхронизироваться между iPhone и ПК через скрытую папку приложения в вашем Google Drive. Туда попадает только шифр: без фразы его не прочитать.</p><div class="acts"><button class="btn" data-act="gd-on">Подключить Google Drive</button></div>';
+  s+='<p>'+esc(syncLabel())+'.</p>';
+  if(G.foreign)s+='<div class="list"><div class="row"><h4>В Google Drive другая медкарта</h4><p>Она зашифрована другой кодовой фразой, поэтому синхронизация остановлена и облако не перезаписано. Введите фразу облачной медкарты: её ключ станет общим, а данные с этого устройства добавятся в неё.</p><label class="f" for="cfp">Кодовая фраза облачной медкарты</label><input id="cfp" type="password"><div class="acts"><button class="btn pri" data-act="gd-adopt">Подключиться к облачной медкарте</button></div></div></div>';
+  return s+'<div class="acts">'+(G.status==='auth'?'<button class="btn pri" data-act="sync-tap">Войти в Google</button>':'<button class="btn" data-act="gd-now"'+(G.busy?' disabled':'')+'>Синхронизировать сейчас</button>')+'<button class="btn ghost danger" data-act="gd-off">Отключить</button></div>';
 }
 function dataSheet(){
   var lb=S.backups.slice().sort().pop(),s=sheetHead('Данные');
   s+='<p>Медкарта зашифрована и хранится только на этом устройстве. Резервная копия тоже зашифрована: её можно класть в iCloud Drive, Google Drive или Яндекс Диск, без фразы её не прочитать.</p>';
   s+='<p class="muted">'+(lb?'Последняя копия: '+fmtDate(lb,true)+'.':'Резервных копий ещё не было.')+'</p>';
   s+='<div class="acts"><button class="btn pri" data-act="backup"'+(UI.backupFile?'':' disabled')+'>'+(UI.backupFile?'Сохранить копию':'Готовлю копию…')+'</button></div>';
+  s+=driveSection();
   s+='<h3>Импорт</h3><p class="muted" style="font-size:14px">Копия с другого устройства или обновление медкарты, которое я подготовлю по новым документам.</p>';
   if(UI.pending){
     s+='<div class="list"><div class="row"><h4>Файл прочитан</h4><p>«Объединить» добавит новое и сохранит ваши отметки. «Заменить» сотрёт текущую медкарту на этом устройстве.</p><div class="acts"><button class="btn pri" data-act="imp-merge">Объединить</button><button class="btn danger" data-act="imp-replace">Заменить всё</button><button class="btn ghost" data-act="imp-cancel">Отмена</button></div></div></div>';
@@ -626,7 +776,7 @@ async function gateAct(a,el){
     var p1=val('p1'),p2=val('p2');if(p1.length<10)return gerr('Фраза короче 10 символов');if(p1!==p2)return gerr('Фразы не совпадают');
     busy(el,true);
     if(a==='g-setpass'){UI.recCode=await newVault(p1);S=blank();UI.screen='recovery'}
-    else{VAULT.wraps.pass=await wrapPass(DEK,p1);await storage.put(VAULT);UI.screen='app';toast('Новая фраза сохранена')}
+    else{VAULT.wraps.pass=await wrapPass(DEK,p1);await storage.put(VAULT);wrapsChanged();UI.screen='app';toast('Новая фраза сохранена')}
     UI.gateErr='';render();break;
   case 'g-copyrec':try{await navigator.clipboard.writeText(fmtRec(UI.recCode));toast('Скопировано. Вставьте в менеджер паролей')}catch(e){toast('Выделите ключ и скопируйте вручную')}break;
   case 'g-recdone':if(!document.getElementById('rec-ok').checked)return gerr('Подтвердите, что ключ сохранён');
@@ -636,15 +786,21 @@ async function gateAct(a,el){
   case 'g-pkskip':UI.screen=UI.afterRestore?'app':'import';UI.gateErr='';render();break;
   case 'g-empty':S=blank();S.habits=[{id:'meds',label:'Лекарства по схеме',xp:5},{id:'meals',label:'Три приёма пищи',xp:5},{id:'walk',label:'Прогулка 20+ минут',xp:5}];M.stamp(blank(),S,Date.now());save();UI.screen='app';render();break;
   case 'g-userec':UI.useRec=!UI.useRec;UI.gateErr='';render();break;
-  case 'g-back':UI.restore=null;UI.useRec=false;UI.screen='welcome';UI.gateErr='';render();break;
-  case 'g-pkunlock':busy(el,true);try{var d=await pkUnlock();await openWith(d);S=await decryptData(VAULT,DK);UI.screen='app';UI.gateErr='';render()}catch(e){busy(el,false);gerr('Face ID не сработал. Введите кодовую фразу.')}break;
+  case 'g-cloud':
+    if(!navigator.onLine)return gerr('Нет сети');
+    if(!TAURI){redirectLogin('select_account','connect');break}
+    busy(el,true);try{await desktopLogin();await cloudFetchForRestore()}catch(e){gerr('Не удалось получить медкарту из Google Drive')}busy(el,false);break;
+  case 'g-back':UI.restore=null;UI.restoreCloud=null;UI.useRec=false;UI.screen='welcome';UI.gateErr='';render();break;
+  case 'g-pkunlock':busy(el,true);try{var d=await pkUnlock();await openWith(d);S=await decryptData(VAULT,DK);UI.screen='app';UI.gateErr='';render();scheduleSync(300)}catch(e){busy(el,false);gerr('Face ID не сработал. Введите кодовую фразу.')}break;
   case 'g-unlock':
     var src=UI.screen==='restore'?UI.restore:VAULT;busy(el,true);
     try{
       var dek=UI.useRec?await unwrapRec(src,val('rk')):await unwrapPass(src,val('up'));
       var k=await dataKey(dek),st=await decryptData(src,k);
-      if(UI.screen==='restore'){VAULT=src;VAULT.wraps.pk=(VAULT.wraps.pk||[]);await storage.put(VAULT);UI.restore=null;UI.afterRestore=true}
-      await openWith(dek);S=st;
+      if(UI.screen==='restore'){VAULT=src;VAULT.wraps.pk=(VAULT.wraps.pk||[]);delete VAULT.local;
+        if(UI.restoreCloud){VAULT.local={sync:Object.assign({on:true,dirty:false,at:Date.now()},UI.restoreCloud)};UI.restoreCloud=null;G.status='ok'}
+        await storage.put(VAULT);UI.restore=null;UI.afterRestore=true}
+      await openWith(dek);S=st;await storeRefresh();scheduleSync(300);
       try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
       if(UI.useRec){UI.useRec=false;UI.screen='newpass'}
       else if(UI.afterRestore&&pkPossible()&&!hasPk())UI.screen='faceid';
@@ -703,6 +859,24 @@ async function act(a,el){
   case 'imp-cancel':UI.pending=null;UI.foreign=null;openSheet(dataSheet(),'data',true);break;
   case 'imp-foreign':busy(el,true);try{var fd=await unwrapPass(UI.foreign,val('fp')),fk=await dataKey(fd);UI.pending=await decryptData(UI.foreign,fk);UI.pendingVault=true;UI.foreign=null;openSheet(dataSheet(),'data',true)}catch(e){busy(el,false);toast('Фраза не подходит')}break;
   case 'lock-now':lock();break;
+  case 'sync-tap':
+    if(G.status==='auth'){try{await login();syncNow()}catch(e){toast('Вход в Google не выполнен')}}
+    else if(G.status==='foreign'){UI.pending=null;UI.foreign=null;openSheet(dataSheet(),'data');prepareBackup()}
+    else syncNow();
+    break;
+  case 'gd-on':
+    if(!navigator.onLine){toast('Нет сети');return}
+    syncMeta().on=true;syncMeta().dirty=true;await persistVault();
+    if(TAURI){render();busy(el,true);try{await desktopLogin();syncNow()}catch(e){toast('Вход в Google не выполнен')}openSheet(dataSheet(),'data',true)}
+    else redirectLogin('','');
+    break;
+  case 'gd-now':syncNow();break;
+  case 'gd-off':
+    if(!confirm('Отключить синхронизацию на этом устройстве? Данные останутся и здесь, и в Google Drive.'))return;
+    VAULT.local={};G.token=null;G.refresh=null;G.status='';G.foreign=null;await persistVault();render();openSheet(dataSheet(),'data',true);break;
+  case 'gd-adopt':
+    if(!confirm('Медкарта на этом устройстве будет перешифрована ключом облачной и объединена с ней. Face ID нужно будет включить заново. Продолжить?'))return;
+    busy(el,true);try{await adoptCloud(val('cfp'));toast('Подключено к облачной медкарте');render()}catch(e){busy(el,false);toast('Фраза не подходит')}break;
   case 'app-update':if(UPD)installUpdate(el);break;
   case 'autolock':commit(function(){S.settings.autolock=+v},true);openSheet(securitySheet(),'security',true);break;
   case 'pk-on':busy(el,true);try{await pkAdd();toast('Face ID включён')}catch(e){toast(e&&e.message==='noprf'?'Устройство не поддерживает ключ через Face ID':'Face ID не включён')}openSheet(securitySheet(),'security',true);break;
@@ -710,10 +884,10 @@ async function act(a,el){
   case 'chpass':
     var c0=val('cp0'),c1=val('cp1'),c2=val('cp2');if(c1.length<10){toast('Новая фраза короче 10 символов');return}if(c1!==c2){toast('Фразы не совпадают');return}
     busy(el,true);try{await unwrapPass(VAULT,c0)}catch(e){busy(el,false);toast('Текущая фраза не подходит');return}
-    VAULT.wraps.pass=await wrapPass(DEK,c1);await storage.put(VAULT);toast('Фраза изменена. Сделайте новую резервную копию');openSheet(securitySheet(),'security',true);break;
+    VAULT.wraps.pass=await wrapPass(DEK,c1);await storage.put(VAULT);wrapsChanged();toast('Фраза изменена. Сделайте новую резервную копию');openSheet(securitySheet(),'security',true);break;
   case 'newrec':
     busy(el,true);try{await unwrapPass(VAULT,val('rp0'))}catch(e){busy(el,false);toast('Фраза не подходит');return}
-    var rb=rnd(20);VAULT.wraps.rec=await wrapRec(DEK,rb);await storage.put(VAULT);busy(el,false);
+    var rb=rnd(20);VAULT.wraps.rec=await wrapRec(DEK,rb);await storage.put(VAULT);wrapsChanged();busy(el,false);
     document.getElementById('newrec-out').innerHTML='<div class="code" style="margin-top:10px">'+esc(fmtRec(toB32(rb)).replace(/-/g,' '))+'</div><p class="hint">Сохраните его и сделайте новую резервную копию.</p>';break;
   case 'wipe':if(!confirm('Удалить медкарту с этого устройства? Без резервной копии её не восстановить.'))return;if(!confirm('Точно удалить?'))return;
     await saveChain;await storage.del();VAULT=null;lock();break;
@@ -765,6 +939,7 @@ var hiddenAt=0;
 document.addEventListener('visibilitychange',function(){
   if(document.hidden){hiddenAt=Date.now()}
   else if(DK&&hiddenAt&&Date.now()-hiddenAt>((S&&S.settings.autolock)||5)*60000){lock()}
+  else if(DK)scheduleSync(500);
 });
 
 /* Автообновление настольной версии из GitHub Releases. Установщик сам закрывает приложение. */
@@ -777,11 +952,17 @@ async function installUpdate(el){
   busy(el,true);
   try{await saveChain;await UPD.downloadAndInstall()}catch(e){busy(el,false);toast('Обновление не установилось. Попробуйте позже')}
 }
+window.addEventListener('online',function(){if(DK)scheduleSync(1000)});
 if(!TAURI&&'serviceWorker' in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(function(){})}
 (async function boot(){
+  var back=TAURI?null:readRedirect();
   try{VAULT=await storage.get()}catch(e){storageOK=false}
+  if(back&&back.error)G.status='auth';
+  /* веб: токен живёт час и только в памяти, поэтому при запуске тихо получаем новый (без экрана Google, если вход уже был) */
+  if(!back&&!TAURI&&syncConf()&&syncOn()&&navigator.onLine){redirectLogin('none','');return}
   UI.screen=VAULT?'lock':'welcome';
   var hz=(location.hash||'').slice(1);if(TABS.some(function(t){return t[0]===hz}))UI.tab=hz;
   render();checkUpdate();
+  if(back&&back.intent==='connect'&&!VAULT){if(G.token)cloudFetchForRestore().catch(function(){gerr('Не удалось получить медкарту из Google Drive')});else gerr('Вход в Google не выполнен')}
 })();
 })();

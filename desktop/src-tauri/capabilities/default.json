@@ -1,8 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Главное окно: файл хранилища в appDataDir, сохранение копии через диалог, обновления",
-  "windows": ["main"],
+  "description": "Главное окно: файл хранилища в appDataDir, копия через диалог, обновления, вход в Google и Drive API",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "fs:allow-exists",
@@ -13,6 +15,25 @@
     "fs:allow-remove",
     "fs:scope-appdata-recursive",
     "dialog:allow-save",
-    "updater:default"
+    "updater:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://oauth2.googleapis.com/*"
+        },
+        {
+          "url": "https://www.googleapis.com/*"
+        }
+      ]
+    },
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://accounts.google.com/*"
+        }
+      ]
+    }
   ]
 }

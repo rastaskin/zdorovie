@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://www.googleapis.com; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -66,6 +66,9 @@ main{padding:14px 16px 112px}
 
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
 .top-act{display:flex;gap:4px}
+.top-t{min-width:0}
+.sync-st{display:block;border:0;background:none;padding:2px 0 0;font:inherit;font-size:13px;color:var(--muted);cursor:pointer;text-align:left}
+.sync-st.warn{color:var(--warn)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--raise);
   border-radius:10px;padding:9px 14px;min-height:42px;cursor:pointer;font-weight:500;text-decoration:none;color:var(--ink)}
 .btn.sm{min-height:36px;padding:6px 11px;font-size:14px}
@@ -218,7 +221,9 @@ summary{cursor:pointer;color:var(--accent)}
 <div id="app"><div class="gate"><h1 class="display">Здоровье</h1><p>Загрузка…</p></div></div>
 <div class="sheet-wrap" id="sheet" hidden><div class="sheet" role="dialog" aria-modal="true" id="sheet-body"></div></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="config.js"></script>
 <script src="model.js"></script>
+<script src="sync.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
