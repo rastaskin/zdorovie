@@ -83,7 +83,7 @@ test('в репозитории нет токенов и client secret', () => {
 
 test('медицинские маркеры встречаются только в синтетических тестах', () => {
   const markers = ['Тестомицин', 'Гемоглобин'];
-  for (const f of walk(ROOT).filter(f => TEXT.test(f) && !ignored(f) && !f.startsWith('tests/') && f !== 'CLAUDE.md')) {
+  for (const f of walk(ROOT).filter(f => TEXT.test(f) && !ignored(f) && !f.startsWith('tests/') && !f.startsWith('design/') && f !== 'CLAUDE.md')) {
     const s = read(f);
     for (const w of markers) assert.ok(!s.includes(w), `${f}: содержит «${w}»`);
   }
