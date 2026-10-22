@@ -100,6 +100,7 @@ function ignored(f) {
   return ign;
 }
 function globMatch(pat, f) {
+  if (pat.startsWith('/')) { pat = pat.slice(1); if (!pat.includes('/') && !pat.endsWith('/')) return globMatch(pat, f) && !f.includes('/'); }
   if (pat.endsWith('/')) return f.startsWith(pat) || f.includes('/' + pat);
   const re = '^' + pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*\//g, '(?:.*/)?').replace(/\*/g, '[^/]*') + '$';
   return pat.includes('/') ? new RegExp(re).test(f) : new RegExp(re).test(f.split('/').pop());
